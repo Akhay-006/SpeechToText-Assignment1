@@ -1,4 +1,8 @@
 package COMP3011.assignment1.controller;
+import java.util.concurrent.CompletableFuture;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.PostMapping;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.springframework.context.ConfigurableApplicationContext;
@@ -55,6 +59,76 @@ public class ServerController {
         );
 
         return ResponseEntity.ok(response);
+    }
+    
+    @PostMapping(
+            value = "/api/v1/admin/shutdown",
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<Map<String, Object>> shutdown() {
+
+        boolean accepted =
+                shutdownInProgress.compareAndSet(false, true);
+
+        if (!accepted) {
+
+            Map<String, Object> error =
+                    createError(
+                            409,
+                            "Conflict",
+                            "Server shutdown is already in progress.",
+                            "/api/v1/admin/shutdown"
+                    );
+
+            return ResponseEntity
+                    .status(HttpStatus.CONFLICT)
+                    .body(error);
+        }
+
+        Map<String, Object> response =
+                new LinkedHashMap<>();
+
+        response.put(
+                "message",
+                "Server shutdown requested."
+        );
+
+        CompletableFuture.runAsync(() -> {
+
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+
+            context.close();
+        });
+
+        return ResponseEntity
+                .status(HttpStatus.ACCEPTED)
+                .body(response);
+    }
+
+    private Map<String, Object> createError(
+            int status,
+            String error,
+            String message,
+            String path) {
+
+        Map<String, Object> response =
+                new LinkedHashMap<>();
+
+        response.put(
+                "timestamp",
+                Instant.now().toString()
+        );
+
+        response.put("status", status);
+        response.put("error", error);
+        response.put("message", message);
+        response.put("path", path);
+
+        return response;
     }
 
 }
