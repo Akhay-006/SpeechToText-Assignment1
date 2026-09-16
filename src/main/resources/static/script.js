@@ -80,7 +80,7 @@ async function uploadRecording() {
         console.error("Transcription error:", error);
 
         statusText.textContent = "Transcription failed.";
-        transcriptionText.textContent =
+        transcriptionText.textContent =  error.message ||
             "API is unable to transcribe the audio recording.";
 
     } finally {

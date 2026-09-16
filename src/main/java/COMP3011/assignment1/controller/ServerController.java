@@ -10,11 +10,12 @@ import COMP3011.assignment1.service.TokenTrackerService;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.springframework.web.bind.annotation.RestController;
 
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
-
+@RestController
 public class ServerController {
     private final TokenTrackerService tokenTrackerService;
     private final ConfigurableApplicationContext context;
@@ -76,7 +77,7 @@ public class ServerController {
                     createError(
                             409,
                             "Conflict",
-                            "Server shutdown is already in progress.",
+                            "Graceful shutdown is already in progress.",
                             "/api/v1/admin/shutdown"
                     );
 
@@ -87,10 +88,9 @@ public class ServerController {
 
         Map<String, Object> response =
                 new LinkedHashMap<>();
-
         response.put(
                 "message",
-                "Server shutdown requested."
+                "Graceful shutdown requested."
         );
 
         CompletableFuture.runAsync(() -> {
@@ -108,7 +108,6 @@ public class ServerController {
                 .status(HttpStatus.ACCEPTED)
                 .body(response);
     }
-
     private Map<String, Object> createError(
             int status,
             String error,

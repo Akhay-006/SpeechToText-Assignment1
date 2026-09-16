@@ -1,8 +1,6 @@
 package COMP3011.assignment1.service;
-
 import java.io.IOException;
 import java.util.Map;
-
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -10,15 +8,16 @@ import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.multipart.MultipartFile;
-
 @Service
-public class SttSpeechService implements SpeechService {
-    private static final String API_URL = "https://api.stt.ai";
-    private static final String MODEL_NAME = "large-v3-turbo";
+public class OpenAiSpeechService implements SpeechService {
+    private static final String API_URL = "https://api.openai.com";
+    private static final String MODEL_NAME = "gpt-4o-mini-transcribe";
 
     private final RestClient apiClient;
+    private final TokenTrackerService tokenTrackerService;
 
-    public SttSpeechService() {
+    public OpenAiSpeechService(TokenTrackerService tokenTrackerService) {
+    	this.tokenTrackerService = tokenTrackerService;
 
         this.apiClient = RestClient.builder()
                 .baseUrl(API_URL)
@@ -27,7 +26,7 @@ public class SttSpeechService implements SpeechService {
     @Override
     public String transcribe(MultipartFile audio) throws IOException {
 
-        String key = System.getenv("STT_API_KEY");
+        String key = System.getenv("OPENAI_API_KEY");
 
         if (key == null || key.isBlank()) {
             throw new IllegalStateException(
@@ -62,13 +61,11 @@ public class SttSpeechService implements SpeechService {
 
         requestBody.part("file", audioResource);
         requestBody.part("model", MODEL_NAME);
-        requestBody.part("language", "auto");
-        requestBody.part("diarize", "false");
-        requestBody.part("response_format", "json");
+
 
         Map<?, ?> apiResponse = apiClient
                 .post()
-                .uri("/v1/transcribe")
+                .uri("/v1/audio/transcriptions")
                 .header(
                         HttpHeaders.AUTHORIZATION,
                         "Bearer " + key
@@ -80,7 +77,7 @@ public class SttSpeechService implements SpeechService {
 
         if (apiResponse == null) {
             throw new IllegalStateException(
-                    "We couldn't get a response from the speech service. Please try again."
+                    "We couldn't get a response from the OpenAi. Please try again."
             );
         }
 
@@ -91,7 +88,27 @@ public class SttSpeechService implements SpeechService {
                     "The audio was processed, but no transcription was returned. Please try again."
             );
         }
-
+        updateTokenUsage(apiResponse);
         return transcription.toString();
+    }
+    private void updateTokenUsage(Map<?, ?> apiResponse) {
+
+        Object usageObject = apiResponse.get("usage");
+
+        if (!(usageObject instanceof Map<?, ?> usage)) {
+            return;
+        }
+
+        Object input = usage.get("input_tokens");
+        Object output = usage.get("output_tokens");
+
+        if (input instanceof Number inputTokens
+                && output instanceof Number outputTokens) {
+
+            tokenTrackerService.addTokenUsage(
+                    inputTokens.longValue(),
+                    outputTokens.longValue()
+            );
+        }
     }
 }
