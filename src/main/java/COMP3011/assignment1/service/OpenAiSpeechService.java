@@ -14,15 +14,14 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class OpenAiSpeechService implements SpeechService {
 
-    private static final String API_URL =
-            "https://api.stt.ai";
-
-    private static final String MODEL_NAME =
-            "large-v3-turbo";
+    private static final String API_URL = "https://api.openai.com";
+    private static final String MODEL_NAME = "gpt-4o-mini-transcribe";
 
     private final RestClient apiClient;
+    private final TokenTrackerService tokenTrackerService;
 
-    public OpenAiSpeechService() {
+    public OpenAiSpeechService(TokenTrackerService tokenTrackerService) {
+        this.tokenTrackerService = tokenTrackerService;
 
         this.apiClient = RestClient.builder()
                 .baseUrl(API_URL)
@@ -30,80 +29,89 @@ public class OpenAiSpeechService implements SpeechService {
     }
 
     @Override
-    public String transcribe(MultipartFile audio)
-            throws IOException {
+    public String transcribe(MultipartFile audio) throws IOException {
 
-        String key = System.getenv("STT_API_KEY");
+        String key = System.getenv("OPENAI_API_KEY");
 
         if (key == null || key.isBlank()) {
-            throw new IllegalStateException(
-                    "STT_API_KEY is not set."
-            );
+            throw new IllegalStateException("OPENAI_API_KEY is not set.");
         }
 
         if (audio == null || audio.isEmpty()) {
             throw new IllegalArgumentException(
-                    "No audio file was received."
+                    "No audio file was received. Record some audio and try again."
             );
         }
-
-        String fileName = audio.getOriginalFilename();
-
-        if (fileName == null || fileName.isBlank()) {
-            fileName = "recording.webm";
-        }
-
-        String uploadFileName = fileName;
 
         ByteArrayResource audioResource =
                 new ByteArrayResource(audio.getBytes()) {
 
-            @Override
-            public String getFilename() {
-                return uploadFileName;
-            }
-        };
+                    @Override
+                    public String getFilename() {
+                        String originalFilename =
+                                audio.getOriginalFilename();
 
-        MultipartBodyBuilder body =
+                        return originalFilename != null
+                                ? originalFilename
+                                : "recording.webm";
+                    }
+                };
+
+        MultipartBodyBuilder requestBody =
                 new MultipartBodyBuilder();
 
-        body.part("file", audioResource)
-                .contentType(
-                        audio.getContentType() != null
-                                ? MediaType.parseMediaType(
-                                        audio.getContentType()
-                                )
-                                : MediaType.APPLICATION_OCTET_STREAM
-                );
+        requestBody.part("file", audioResource);
+        requestBody.part("model", MODEL_NAME);
 
-        body.part("model", MODEL_NAME);
-
-        Map<?, ?> response = apiClient
+        Map<?, ?> apiResponse = apiClient
                 .post()
-                .uri("/v1/transcribe")
+                .uri("/v1/audio/transcriptions")
                 .header(
                         HttpHeaders.AUTHORIZATION,
                         "Bearer " + key
                 )
                 .contentType(MediaType.MULTIPART_FORM_DATA)
-                .body(body.build())
+                .body(requestBody.build())
                 .retrieve()
                 .body(Map.class);
 
-        if (response == null) {
+        if (apiResponse == null) {
             throw new IllegalStateException(
-                    "STT.ai returned no response."
+                    "We couldn't get a response from OpenAI. Please try again."
             );
         }
 
-        Object text = response.get("text");
+        Object transcription = apiResponse.get("text");
 
-        if (text == null) {
+        if (transcription == null) {
             throw new IllegalStateException(
-                    "STT.ai returned no transcription."
+                    "The audio was processed, but no transcription was returned."
             );
         }
 
-        return text.toString();
+        updateTokenUsage(apiResponse);
+
+        return transcription.toString();
+    }
+
+    private void updateTokenUsage(Map<?, ?> apiResponse) {
+
+        Object usageObject = apiResponse.get("usage");
+
+        if (!(usageObject instanceof Map<?, ?> usage)) {
+            return;
+        }
+
+        Object input = usage.get("input_tokens");
+        Object output = usage.get("output_tokens");
+
+        if (input instanceof Number inputTokens
+                && output instanceof Number outputTokens) {
+
+            tokenTrackerService.addTokenUsage(
+                    inputTokens.longValue(),
+                    outputTokens.longValue()
+            );
+        }
     }
 }
