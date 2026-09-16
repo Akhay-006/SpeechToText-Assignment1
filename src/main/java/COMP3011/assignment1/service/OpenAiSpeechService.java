@@ -1,6 +1,8 @@
 package COMP3011.assignment1.service;
+
 import java.io.IOException;
 import java.util.Map;
+
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -8,35 +10,40 @@ import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.multipart.MultipartFile;
+
 @Service
 public class OpenAiSpeechService implements SpeechService {
-    private static final String API_URL = "https://api.openai.com";
-    private static final String MODEL_NAME = "gpt-4o-mini-transcribe";
+
+    private static final String API_URL =
+            "https://api.stt.ai";
+
+    private static final String MODEL_NAME =
+            "large-v3-turbo";
 
     private final RestClient apiClient;
-    private final TokenTrackerService tokenTrackerService;
 
-    public OpenAiSpeechService(TokenTrackerService tokenTrackerService) {
-    	this.tokenTrackerService = tokenTrackerService;
+    public OpenAiSpeechService() {
 
         this.apiClient = RestClient.builder()
                 .baseUrl(API_URL)
                 .build();
     }
-    @Override
-    public String transcribe(MultipartFile audio) throws IOException {
 
-        String key = System.getenv("OPENAI_API_KEY");
+    @Override
+    public String transcribe(MultipartFile audio)
+            throws IOException {
+
+        String key = System.getenv("STT_API_KEY");
 
         if (key == null || key.isBlank()) {
             throw new IllegalStateException(
-                    "API error."
+                    "STT_API_KEY is not set."
             );
         }
 
         if (audio == null || audio.isEmpty()) {
             throw new IllegalArgumentException(
-                    "No audio file was received. Record some audio and try again."
+                    "No audio file was received."
             );
         }
 
@@ -57,58 +64,46 @@ public class OpenAiSpeechService implements SpeechService {
             }
         };
 
-        MultipartBodyBuilder requestBody = new MultipartBodyBuilder();
+        MultipartBodyBuilder body =
+                new MultipartBodyBuilder();
 
-        requestBody.part("file", audioResource);
-        requestBody.part("model", MODEL_NAME);
+        body.part("file", audioResource)
+                .contentType(
+                        audio.getContentType() != null
+                                ? MediaType.parseMediaType(
+                                        audio.getContentType()
+                                )
+                                : MediaType.APPLICATION_OCTET_STREAM
+                );
 
+        body.part("model", MODEL_NAME);
 
-        Map<?, ?> apiResponse = apiClient
+        Map<?, ?> response = apiClient
                 .post()
-                .uri("/v1/audio/transcriptions")
+                .uri("/v1/transcribe")
                 .header(
                         HttpHeaders.AUTHORIZATION,
                         "Bearer " + key
                 )
                 .contentType(MediaType.MULTIPART_FORM_DATA)
-                .body(requestBody.build())
+                .body(body.build())
                 .retrieve()
                 .body(Map.class);
 
-        if (apiResponse == null) {
+        if (response == null) {
             throw new IllegalStateException(
-                    "We couldn't get a response from the OpenAi. Please try again."
+                    "STT.ai returned no response."
             );
         }
 
-        Object transcription = apiResponse.get("text");
+        Object text = response.get("text");
 
-        if (transcription == null) {
+        if (text == null) {
             throw new IllegalStateException(
-                    "The audio was processed, but no transcription was returned. Please try again."
+                    "STT.ai returned no transcription."
             );
         }
-        updateTokenUsage(apiResponse);
-        return transcription.toString();
-    }
-    private void updateTokenUsage(Map<?, ?> apiResponse) {
 
-        Object usageObject = apiResponse.get("usage");
-
-        if (!(usageObject instanceof Map<?, ?> usage)) {
-            return;
-        }
-
-        Object input = usage.get("input_tokens");
-        Object output = usage.get("output_tokens");
-
-        if (input instanceof Number inputTokens
-                && output instanceof Number outputTokens) {
-
-            tokenTrackerService.addTokenUsage(
-                    inputTokens.longValue(),
-                    outputTokens.longValue()
-            );
-        }
+        return text.toString();
     }
 }
