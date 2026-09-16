@@ -1,3 +1,7 @@
+/*
+ * Handles server administration operations.
+ * Provides server uptime information and graceful shutdown functionality.
+ */
 package COMP3011.assignment1.controller;
 import java.util.concurrent.CompletableFuture;
 

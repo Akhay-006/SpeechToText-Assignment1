@@ -1,3 +1,7 @@
+/*
+ * Defines the speech transcription service.
+ * Allows controllers to use transcription without depending on a specific implementation.
+ */
 package COMP3011.assignment1.service;
 
 import java.io.IOException;

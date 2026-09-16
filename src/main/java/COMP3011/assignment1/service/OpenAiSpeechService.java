@@ -1,3 +1,7 @@
+/*
+ * Implements the speech transcription service using the OpenAI API.
+ * Sends audio for transcription and records the returned token usage.
+ */
 package COMP3011.assignment1.service;
 
 import java.io.IOException;
@@ -14,16 +18,22 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class OpenAiSpeechService implements SpeechService {
 
-    private static final String API_URL = "https://api.openai.com";
-    private static final String MODEL_NAME = "gpt-4o-mini-transcribe";
+    private static final String API_URL =
+            "https://api.openai.com";
+
+    private static final String MODEL_NAME =
+            "gpt-4o-mini-transcribe";
 
     private final RestClient apiClient;
     private final TokenTrackerService tokenTrackerService;
 
-    public OpenAiSpeechService(TokenTrackerService tokenTrackerService) {
+    public OpenAiSpeechService(
+            RestClient.Builder restClientBuilder,
+            TokenTrackerService tokenTrackerService) {
+
         this.tokenTrackerService = tokenTrackerService;
 
-        this.apiClient = RestClient.builder()
+        this.apiClient = restClientBuilder
                 .baseUrl(API_URL)
                 .build();
     }
@@ -31,15 +41,17 @@ public class OpenAiSpeechService implements SpeechService {
     @Override
     public String transcribe(MultipartFile audio) throws IOException {
 
-        String key = System.getenv("OPENAI_API_KEY");
-
-        if (key == null || key.isBlank()) {
-            throw new IllegalStateException("OPENAI_API_KEY is not set.");
-        }
-
         if (audio == null || audio.isEmpty()) {
             throw new IllegalArgumentException(
-                    "No audio file was received. Record some audio and try again."
+                    "No audio file was received."
+            );
+        }
+
+        String apiKey = System.getenv("OPENAI_API_KEY");
+
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException(
+                    "OPENAI_API_KEY environment variable is not set."
             );
         }
 
@@ -48,55 +60,61 @@ public class OpenAiSpeechService implements SpeechService {
 
                     @Override
                     public String getFilename() {
+
                         String originalFilename =
                                 audio.getOriginalFilename();
 
-                        return originalFilename != null
-                                ? originalFilename
-                                : "recording.webm";
+                        if (originalFilename == null
+                                || originalFilename.isBlank()) {
+
+                            return "recording.webm";
+                        }
+
+                        return originalFilename;
                     }
                 };
 
-        MultipartBodyBuilder requestBody =
+        MultipartBodyBuilder body =
                 new MultipartBodyBuilder();
 
-        requestBody.part("file", audioResource);
-        requestBody.part("model", MODEL_NAME);
+        body.part("file", audioResource);
 
-        Map<?, ?> apiResponse = apiClient
+        body.part("model", MODEL_NAME);
+
+        Map<?, ?> response = apiClient
                 .post()
                 .uri("/v1/audio/transcriptions")
                 .header(
                         HttpHeaders.AUTHORIZATION,
-                        "Bearer " + key
+                        "Bearer " + apiKey
                 )
                 .contentType(MediaType.MULTIPART_FORM_DATA)
-                .body(requestBody.build())
+                .body(body.build())
                 .retrieve()
                 .body(Map.class);
 
-        if (apiResponse == null) {
+        if (response == null) {
             throw new IllegalStateException(
-                    "We couldn't get a response from OpenAI. Please try again."
+                    "OpenAI returned an empty response."
             );
         }
 
-        Object transcription = apiResponse.get("text");
+        Object text = response.get("text");
 
-        if (transcription == null) {
+        if (text == null) {
             throw new IllegalStateException(
-                    "The audio was processed, but no transcription was returned."
+                    "OpenAI did not return transcription text."
             );
         }
 
-        updateTokenUsage(apiResponse);
+        updateTokenUsage(response);
 
-        return transcription.toString();
+        return text.toString();
     }
 
-    private void updateTokenUsage(Map<?, ?> apiResponse) {
+    private void updateTokenUsage(Map<?, ?> response) {
 
-        Object usageObject = apiResponse.get("usage");
+        Object usageObject = response.get("usage");
 
         if (!(usageObject instanceof Map<?, ?> usage)) {
             return;
@@ -105,11 +123,14 @@ public class OpenAiSpeechService implements SpeechService {
         Object input = usage.get("input_tokens");
         Object output = usage.get("output_tokens");
 
-        if (input instanceof Number inputTokens
-                && output instanceof Number outputTokens) {
+        if (input instanceof Number inputTokens) {
+            tokenTrackerService.addInputTokens(
+                    inputTokens.longValue()
+            );
+        }
 
-            tokenTrackerService.addTokenUsage(
-                    inputTokens.longValue(),
+        if (output instanceof Number outputTokens) {
+            tokenTrackerService.addOutputTokens(
                     outputTokens.longValue()
             );
         }
