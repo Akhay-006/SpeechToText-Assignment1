@@ -1,3 +1,7 @@
+/*
+ * Handles application exceptions in one central location.
+ * Returns consistent JSON error responses for bad requests and server errors.
+ */
 package COMP3011.assignment1.exception;
 import java.time.Instant;
 import java.util.LinkedHashMap;
