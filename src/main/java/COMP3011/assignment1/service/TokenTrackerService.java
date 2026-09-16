@@ -31,6 +31,13 @@ public class TokenTrackerService {
     public long getOutputTokens() {
         return outputTokens.get();
     }
+    public void addInputTokens(long input) {
+        inputTokens.addAndGet(input);
+    }
+
+    public void addOutputTokens(long output) {
+        outputTokens.addAndGet(output);
+    }
     public void addTokenUsage(long input, long output) {
 
         inputTokens.addAndGet(input);
